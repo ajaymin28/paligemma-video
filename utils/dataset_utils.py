@@ -6,14 +6,11 @@ import json
 import math
 import random
 from PIL import Image
-from typing import Dict, Optional, Sequence, List, Union
+from typing import Dict
 import torch
 import time
 import os
-import copy 
 from utils.video_processing import process_video_with_decord
-import numpy as np
-from dataclasses import dataclass, field
 from utils.config import Configuration
 
 def rank0_print(*args):
@@ -84,25 +81,6 @@ def collate_fn_video(examples,processor,video_data_root, device, train=True):
     inputs = inputs.to(torch.bfloat16).to(device)
 
     return inputs
-
-# @dataclass
-# class DataArguments:
-#     data_path: str = field(default=None, metadata={"help": "Path to the training data, in llava's instruction.json format. Supporting multiple json files via /path/to/{a,b,c}.json"})
-#     # lazy_preprocess: bool = False
-#     # is_multimodal: bool = False
-#     # early_mix_text: bool = False
-#     image_folder: Optional[str] = field(default=None)
-#     # image_aspect_ratio: str = "square"
-#     # image_grid_pinpoints: Optional[str] = field(default=None)
-#     # image_crop_resolution: Optional[int] = field(default=None)
-#     # image_split_resolution: Optional[int] = field(default=None)
-#     dataset_paths: Optional[list] = field(default=[])
-
-#     video_folder: Optional[str] = field(default=None)
-#     # video_fps: Optional[int] = field(default=1)
-#     # frames_upbound: Optional[int] = field(default=0)
-#     # add_time_instruction: Optional[bool] = field(default=False)
-#     # force_sample: Optional[bool] = field(default=False)
 
 class LazySupervisedDataset(Dataset):
     
@@ -276,48 +254,7 @@ class LazySupervisedDataset(Dataset):
                 print("File {} not exist!".format(video_file))
 
             return self.list_data_dict[i]
-
-            # try:
-            #     # JAIMIN: 
-            #     frame_indices = self.list_data_dict[i]["frame_indices"]
-            #     video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
-            #     print("decord video sample: ", video.shape)
-
-            #     # convert video(np.array) to PIL.Image
-            #     frames = [Image.fromarray(video[i]).convert("RGB") for i in range(video.shape[0])]
-            #     frame_tokens = [f"<image>" for _ in range(video.shape[0])]
-            #     frame_tokens = "".join(frame_tokens)
-            #     print("len of frames: ", len(frames))
-
-            #     # extract user prompt
-            #     user_prompt = self.list_data_dict[i]["conversations"][0]
-            #     assert user_prompt["from"] == "human"
-
-            #     user_prompt["value"] = user_prompt["value"].replace("<video>", frame_tokens)
-
-
-            #     assitant_respose = self.list_data_dict[i]["conversations"][1]
-            #     assert assitant_respose["from"] == "gpt"
-
-            #     assitant_respose["value"]
-
-            #     ## use paligemmma processor
-            #     inputs = self.processor(
-            #         images=[frames],
-            #         text=user_prompt["value"],
-            #         suffix=assitant_respose["value"],
-            #         return_tensors="pt",
-            #         padding="longest",
-            #     )
-
-            #     inputs = inputs.to(torch.bfloat16).to(self.config.DEVICE)
-
-            #     return inputs
-            
-            # except Exception as e:
-            #     print(f"Error: {e}")
-            #     print(f"Failed to read video file: {video_file}")
-            #     return self._get_item(i + 1)
+        
         else:
             raise Exception("Only video data is supported for now.")
             # sources = copy.deepcopy([e["conversations"] for e in sources])

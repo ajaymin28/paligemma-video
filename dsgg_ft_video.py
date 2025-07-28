@@ -1,61 +1,12 @@
-import re
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from transformers import PaliGemmaProcessor, PaliGemmaForConditionalGeneration, BitsAndBytesConfig
-from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-# from configs import object_detection_config
-# from paligemma_ft.data_utis import collate_fn
-# from paligemma_ft.model_utils import freeze_layers
-
-from functools import partial
-# from matplotlib import pyplot as plt, patches
 from utils.dataset_utils import LazySupervisedDataset, collate_fn_video
 from utils.config import Configuration
 from utils.utilities import print_trainable_params
 import os
-
-
-# def infer_on_model(model, test_batch, before_pt=True):
-#     # hardcoding the index to get same before and after results
-#     index = 0
-
-#     # help from : https://discuss.huggingface.co/t/vitimageprocessor-output-visualization/76335/6
-#     mean = processor.image_processor.image_mean
-#     std = processor.image_processor.image_std
-
-#     pixel_value = test_batch["pixel_values"][index].cpu().to(torch.float32)
-
-#     unnormalized_image = (
-#         pixel_value.numpy() * np.array(std)[:, None, None]
-#     ) + np.array(mean)[:, None, None]
-#     unnormalized_image = (unnormalized_image * 255).astype(np.uint8)
-#     unnormalized_image = np.moveaxis(unnormalized_image, 0, -1)
-
-#     with torch.inference_mode():
-#         generated_outputs = model.generate(
-#             **test_batch, max_new_tokens=100, do_sample=False
-#         )
-#         generated_outputs = processor.batch_decode(
-#             generated_outputs, skip_special_tokens=True
-#         )
-
-#     if before_pt:
-#         # generation of the pre trained model
-#         for element in generated_outputs:
-#             location = element.split("\n")[1]
-#             if location == "":
-#                 print("No bbox found")
-#             else:
-#                 print(location)
-#     else:
-#         # generation of the fine tuned model
-#         element = generated_outputs[index]
-#         detection_string = element.split("\n")[1]
-#         objects = extract_objects(detection_string, 224, 224, unique_labels=False)
-#         draw_bbox(unnormalized_image, objects)
 
 
 if __name__ == "__main__":
@@ -190,9 +141,6 @@ if __name__ == "__main__":
 
             # print(torch.cuda.max_memory_allocated() / 1024**2, "MB")
 
-            # loss.backward()
-            # optimizer.step()
-            # optimizer.zero_grad()
             # Optional: clear GPU cache to reduce OOM risk
             torch.cuda.empty_cache()
 
@@ -201,6 +149,3 @@ if __name__ == "__main__":
     print(f"[INFO] LoRA adapter saved to {save_path}")
     processor.save_pretrained(save_path)
     print(f"[INFO] Processor saved to {save_path}")
-
-    # # run model generation after fine tuning
-    # infer_on_model(model, test_batch, before_pt=False)
