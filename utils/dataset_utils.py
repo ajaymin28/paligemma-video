@@ -22,6 +22,76 @@ def rank0_print(*args):
     print(*args)
 
 
+def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=True):
+    batch_messages = []
+
+    video_folder = video_data_root
+    for example in examples:
+
+        video_file = example["video"]
+        video_file = os.path.join(video_folder, video_file)
+        # suffix = video_file.split(".")[-1]
+        if not os.path.exists(video_file):
+            print("File {} not exist!".format(video_file))
+
+        frame_indices = example["frame_indices"]
+        video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
+        # print("decord video sample: ", video.shape)
+
+        # convert video(np.array) to PIL.Image
+        frames = [Image.fromarray(video[i]).convert("RGB") for i in range(video.shape[0])]
+        frame_tokens = [f"<image>" for _ in range(video.shape[0])]
+        frame_tokens = "".join(frame_tokens)
+        # print("len of frames: ", len(frames))
+
+        # batch_images.append(frames)
+        del video
+
+        # extract user prompt
+        user_prompt = example["conversations"][0]
+        assert user_prompt["from"] == "human"
+
+        assitant_respose = example["conversations"][1]
+        assert assitant_respose["from"] == "gpt"
+
+        message = [
+            {
+                "role": "user",
+                "content": [{"type": "image", "image": frame} for frame in frames]
+            },
+            {
+                "role": "assistant", 
+                "content": [
+                    {"type": "text", "text": assitant_respose["value"]}
+                ]
+            }
+        ]
+        
+        ## add user prompt
+        message[0]["content"].append({"type": "text", "text": user_prompt["value"]})
+
+        batch_messages.append(message)
+
+    inputs = processor.apply_chat_template(
+        batch_messages,
+        add_generation_prompt=False,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+        padding=True,
+    ).to(device)
+
+    labels = inputs["input_ids"].clone()
+    special_token_ids = processor.tokenizer.all_special_ids
+
+    special_token_ids_tensor = torch.tensor(special_token_ids, device=labels.device)
+    mask = torch.isin(labels, special_token_ids_tensor)
+    labels[mask] = -100
+
+    inputs["labels"] = labels
+
+    return inputs
+
 def collate_fn_video(examples,processor,video_data_root, device, train=True):
     batch_images = []
     batch_prompt = []

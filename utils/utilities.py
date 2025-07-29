@@ -2422,3 +2422,27 @@ def print_trainable_params(model):
     print(f"Total parameters: {all_params:,}")
     print(f"Trainable memory (approx): {trainable_mem:.2f} MB")
     print(f"Total model memory (approx): {total_mem:.2f} MB")
+
+# ## add new tokens
+# tokenizer = processor.tokenizer
+
+# # Get original sizes
+# original_vocab_size = tokenizer.vocab_size
+# original_total_size = len(tokenizer)
+
+# print(f"Original vocab size (pretrained): {original_vocab_size}")
+# print(f"Original total tokenizer size (includes added tokens): {original_total_size}")
+
+# added_tokens_count = tokenizer.add_tokens(["#frameid", "#sgend"], special_tokens=True)
+
+# # Get updated sizes
+# new_total_size = len(tokenizer)
+
+# print(f"Number of new tokens added: {added_tokens_count}")
+# print(f"New total tokenizer size: {new_total_size}")
+
+# # Attach updated tokenizer to processor if needed
+# processor.tokenizer = tokenizer
+
+# model.resize_token_embeddings(len(processor.tokenizer))
+# print(f"Model's token embeddings resized to: {len(processor.tokenizer)}")

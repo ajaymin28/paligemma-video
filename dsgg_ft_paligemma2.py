@@ -13,33 +13,14 @@ if __name__ == "__main__":
     # get the device
     config = Configuration()
 
-    save_path = "./checkpoints/paligemma2-lora_r256_a512_lr1e-5_withemb"
+    config.MODEL_ID = "google/paligemma2-3b-pt-224"
+
+    save_path = "./checkpoints/paligemma2-lora_r256_a512_lr1e-5_with_mm_proj"
     os.makedirs(save_path,exist_ok=True)
 
     # get the processor
     print(f"[INFO] loading {config.MODEL_ID} processor from hub...")
     processor = PaliGemmaProcessor.from_pretrained(config.MODEL_ID)
-
-    ## add new tokens
-    tokenizer = processor.tokenizer
-
-    # Get original sizes
-    original_vocab_size = tokenizer.vocab_size
-    original_total_size = len(tokenizer)
-
-    print(f"Original vocab size (pretrained): {original_vocab_size}")
-    print(f"Original total tokenizer size (includes added tokens): {original_total_size}")
-
-    added_tokens_count = tokenizer.add_tokens(["#frame", "#sgend"], special_tokens=False)
-
-    # Get updated sizes
-    new_total_size = len(tokenizer)
-
-    print(f"Number of new tokens added: {added_tokens_count}")
-    print(f"New total tokenizer size: {new_total_size}")
-
-    # Attach updated tokenizer to processor if needed
-    processor.tokenizer = tokenizer
 
     ##
     # Quantization config
@@ -48,7 +29,8 @@ if __name__ == "__main__":
         bnb_4bit_quant_type='nf4',  # or 'fp4'
         bnb_4bit_compute_dtype=torch.bfloat16,  # or bfloat16 if supported
         llm_int8_threshold=6.0,
-        llm_int8_skip_modules=None,
+        llm_int8_has_fp16_weight=False,
+        llm_int8_skip_modules=None
     )
 
     # load the pre trained model
@@ -58,12 +40,9 @@ if __name__ == "__main__":
         torch_dtype=config.MODEL_DTYPE,
         device_map=config.DEVICE,
         # revision=config.MODEL_REVISION,
-        quantization_config=bnb_config,
+        # quantization_config=bnb_config,
         attn_implementation="flash_attention_2"
     )
-
-    model.resize_token_embeddings(len(processor.tokenizer))
-    print(f"Model's token embeddings resized to: {len(processor.tokenizer)}")
 
     video_data_root = "/groups/sernam/datasets/ActionGenome/ActionGenome/videos"
     train_dataset = LazySupervisedDataset(data_path="/home/ja882177/dso/gits/paligemma-video/data/ag_dataset.yaml",
@@ -90,26 +69,37 @@ if __name__ == "__main__":
         init_lora_weights="olora"
     )
 
+    # model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    model = get_peft_model(model=model, peft_config=peft_config)
+    model.to("cuda")
+
     """Additional Layers to Train"""
-    additional_base_layers_to_train = ["emb"]
+    additional_base_layers_to_train = [
+                                        # "embed_tokens",
+                                        # "vision", 
+                                        "multi_modal_projector"
+                                    ]
+    
     for name, param in model.named_parameters():
         # print(name)
         for add_layers in additional_base_layers_to_train:
             if add_layers.lower() in name.lower()  and "lora" not in name.lower():
-                if torch.is_floating_point(param):
-                    print(name)
-                    param.requires_grad = True
+                # if torch.is_floating_point(param):
+                print(name)
+                param.requires_grad = True
 
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
-    model = get_peft_model(model=model, peft_config=peft_config)
-    model.to("cuda")
+    print("#"*10)
+    for name, param in model.named_parameters():
+        for add_layers in additional_base_layers_to_train:
+            if add_layers.lower() in name.lower()  and "lora" not in name.lower():
+                print(name, param.requires_grad)
+    print("#"*10)
+
     print_trainable_params(model)
 
     model.gradient_checkpointing_enable()
     model.config.use_cache = False
-
     
-    # exit()
 
     # fine tune the model
     print("[INFO] fine tuning the model...")
