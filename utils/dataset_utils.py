@@ -22,37 +22,116 @@ def rank0_print(*args):
     print(*args)
 
 
-def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=True):
+def collate_fn_video_gemma3_test(examples,processor,device, max_frames=8):
     batch_messages = []
 
-    video_folder = video_data_root
+    # video_folder = video_data_root
     for example in examples:
 
-        video_file = example["video"]
-        video_file = os.path.join(video_folder, video_file)
-        # suffix = video_file.split(".")[-1]
-        if not os.path.exists(video_file):
-            print("File {} not exist!".format(video_file))
+        prompt = example["prompt"]
+        video_file = example["video_path"]
+        frame_indices = example["block_data"]["frame_idxes"]
+        # Drop n random entries
 
-        frame_indices = example["frame_indices"]
+        if len(frame_indices)>max_frames:
+            n_to_drop = len(frame_indices) - max_frames # for example
+            drop_indices = sorted(random.sample(range(len(frame_indices)), n_to_drop), reverse=True)
+
+            # Drop selected items
+            for i in drop_indices:
+                del frame_indices[i]
+        
         video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
         # print("decord video sample: ", video.shape)
 
         # convert video(np.array) to PIL.Image
         frames = [Image.fromarray(video[i]).convert("RGB") for i in range(video.shape[0])]
-        frame_tokens = [f"<image>" for _ in range(video.shape[0])]
-        frame_tokens = "".join(frame_tokens)
+        # frame_tokens = [f"<image>" for _ in range(video.shape[0])]
+        # frame_tokens = "".join(frame_tokens)
         # print("len of frames: ", len(frames))
 
         # batch_images.append(frames)
         del video
 
+        message = [
+            {
+                "role": "user",
+                "content": [{"type": "image", "image": frame} for frame in frames]
+            }
+        ]
+        
+        ## add user prompt
+        message[0]["content"].append({"type": "text", "text": prompt.replace("<video>", "")})
+        batch_messages.append(message)
+
+    inputs = processor.apply_chat_template(
+        batch_messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+        padding=True,
+        do_pan_and_scan=False,
+    ).to(device)
+
+    # labels = inputs["input_ids"].clone()
+    # special_token_ids = processor.tokenizer.all_special_ids
+    # special_token_ids_tensor = torch.tensor(special_token_ids, device=labels.device)
+    # mask = torch.isin(labels, special_token_ids_tensor)
+    # labels[mask] = -100
+    # inputs["labels"] = labels
+
+    return inputs
+
+def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=True, max_frames=4, isDeepSpeed=True):
+    batch_messages = []
+
+    video_folder = video_data_root
+    for example in examples:
         # extract user prompt
         user_prompt = example["conversations"][0]
         assert user_prompt["from"] == "human"
 
         assitant_respose = example["conversations"][1]
         assert assitant_respose["from"] == "gpt"
+
+        video_file = os.path.join(video_data_root,example["video"])
+        if not os.path.exists(video_file):
+            print(f"[ERROR] file not found: {video_file}")
+        frame_indices = example["frame_indices"]
+
+        if max_frames<len(frame_indices):
+            # Parse ground truth triplets
+            gt_str = assitant_respose["value"]
+            frames_gt = gt_str.split('#frameid')[1:]  # skip the first empty split
+            frames_gt = [gt.strip(';#sg_end') for gt in frames_gt]
+
+            # Sanity check
+            assert len(frames_gt) == len(frame_indices), "Mismatch between index and ground truth length."
+
+            # Drop n random entries
+            n_to_drop = len(frame_indices) - max_frames  # for example
+            drop_indices = sorted(random.sample(range(len(frame_indices)), n_to_drop), reverse=True)
+
+            # Drop selected items
+            for i in drop_indices:
+                del frame_indices[i]
+                del frames_gt[i]
+            
+            new_gt_str = ''.join([f"#frameid{gt};" for gt in frames_gt]) + "#sg_end"
+            assitant_respose["value"] = new_gt_str
+
+        video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
+        # print("decord video sample: ", video.shape)
+
+        # convert video(np.array) to PIL.Image
+        frames = [Image.fromarray(video[i]).convert("RGB") for i in range(video.shape[0])]
+        # frame_tokens = [f"<image>" for _ in range(video.shape[0])]
+        # frame_tokens = "".join(frame_tokens)
+        # print("len of frames: ", len(frames))
+
+        # batch_images.append(frames)
+        del video
 
         message = [
             {
@@ -68,31 +147,53 @@ def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=Tr
         ]
         
         ## add user prompt
-        message[0]["content"].append({"type": "text", "text": user_prompt["value"]})
+        message[0]["content"].append({"type": "text", "text": user_prompt["value"].replace("<video>", "")})
+
+        if not train:
+            # for test just pass prompt to the processor
+            assert message[-1]["role"]=="assistant"
+            del message[-1]
 
         batch_messages.append(message)
 
     inputs = processor.apply_chat_template(
         batch_messages,
-        add_generation_prompt=False,
+        add_generation_prompt=True if train else False,
         tokenize=True,
         return_dict=True,
         return_tensors="pt",
         padding=True,
-    ).to(device)
+        do_pan_and_scan=False,
+    )
+
+    # if not isDeepSpeed:
+    # inputs.to(device)
+    # inputs.cuda()
 
     labels = inputs["input_ids"].clone()
-    special_token_ids = processor.tokenizer.all_special_ids
 
-    special_token_ids_tensor = torch.tensor(special_token_ids, device=labels.device)
-    mask = torch.isin(labels, special_token_ids_tensor)
-    labels[mask] = -100
+    # Mask image tokens
+    image_token_id = [
+        processor.tokenizer.convert_tokens_to_ids(
+            processor.tokenizer.special_tokens_map["boi_token"]
+        )
+    ]
+    # Mask tokens for not being used in the loss computation
+    labels[labels == processor.tokenizer.pad_token_id] = -100
+    labels[labels == image_token_id] = -100
+    labels[labels == 262144] = -100
 
     inputs["labels"] = labels
 
+    # special_token_ids = processor.tokenizer.all_special_ids
+    # special_token_ids_tensor = torch.tensor(special_token_ids, device=labels.device)
+    # mask = torch.isin(labels, special_token_ids_tensor)
+    # labels[mask] = -100
+    # inputs["labels"] = labels
+
     return inputs
 
-def collate_fn_video(examples,processor,video_data_root, device, train=True):
+def collate_fn_video(examples,processor,video_data_root, device, train=True, max_frames=8):
     batch_images = []
     batch_prompt = []
     batch_suffix = []
@@ -107,6 +208,36 @@ def collate_fn_video(examples,processor,video_data_root, device, train=True):
             print("File {} not exist!".format(video_file))
 
         frame_indices = example["frame_indices"]
+
+        # extract user prompt
+        user_prompt = example["conversations"][0]
+        assert user_prompt["from"] == "human"
+
+        # assistant response
+        assitant_respose = example["conversations"][1]
+        assert assitant_respose["from"] == "gpt"
+
+        if max_frames<len(frame_indices):
+            # Parse ground truth triplets
+            gt_str = assitant_respose["value"]
+            frames_gt = gt_str.split('#frameid')[1:]  # skip the first empty split
+            frames_gt = [gt.strip(';#sg_end') for gt in frames_gt]
+
+            # Sanity check
+            assert len(frames_gt) == len(frame_indices), "Mismatch between index and ground truth length."
+
+            # Drop n random entries
+            n_to_drop = len(frame_indices) - max_frames  # for example
+            drop_indices = sorted(random.sample(range(len(frame_indices)), n_to_drop), reverse=True)
+
+            # Drop selected items
+            for i in drop_indices:
+                del frame_indices[i]
+                del frames_gt[i]
+            
+            new_gt_str = ''.join([f"#frameid{gt};" for gt in frames_gt]) + "#sg_end"
+            assitant_respose["value"] = new_gt_str
+
         video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
         # print("decord video sample: ", video.shape)
 
@@ -119,20 +250,12 @@ def collate_fn_video(examples,processor,video_data_root, device, train=True):
         batch_images.append(frames)
         del video
 
-        # extract user prompt
-        user_prompt = example["conversations"][0]
-        assert user_prompt["from"] == "human"
-
-        user_prompt["value"] = user_prompt["value"].replace("<video>", frame_tokens)
+        user_prompt["value"] = user_prompt["value"].replace("<video>", frame_tokens + "\n\n")
         batch_prompt.append(user_prompt["value"])
-
-        assitant_respose = example["conversations"][1]
-        assert assitant_respose["from"] == "gpt"
 
         batch_suffix.append(assitant_respose["value"])
 
     if not train:
-        print("Not using suffix")
         inputs = processor(
             images=batch_images,
             text=batch_prompt,
