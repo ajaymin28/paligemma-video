@@ -24,3 +24,5 @@ class Configuration:
     LORA_RANK = 128
     LORA_ALPHA = 256
     MAX_FRAMES_TO_TRAIN = 6
+
+    HF_HUB_MODEL_SAVE_ID = "ajaymin28/Gemma3-video-qlora-AG-8-frames-rank32"

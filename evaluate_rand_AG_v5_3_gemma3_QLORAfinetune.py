@@ -71,7 +71,7 @@ def init_main(args):
 
     # Load adapter
     print(f"loading lora model from: {args.model_path}")
-    key_mapping = {...}
+    # key_mapping = {...}
     model = PeftModel.from_pretrained(model, args.model_path)
 
     # Send to device
@@ -108,7 +108,7 @@ def parse_args():
     parser.add_argument("--video_path", help="Path to the video files.", required=False)
     parser.add_argument("--output_dir", help="Directory to save the model results.", required=True)
     parser.add_argument("--output_name", help="Name of the file for storing results", required=False)
-    parser.add_argument("--model-path", type=str, default="/home/ja882177/dso/gits/paligemma-video/checkpoints/gemma-3-4b-it-lora_r16_a16_lr0.0002_vision")
+    parser.add_argument("--model-path", type=str, default="/home/ja882177/dso/gits/paligemma-video/checkpoints/gemma-3-4b-it-lora_r16_a16_lr0.0002_justlora_8frames_deepspeed_customft_loop")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--load_8bit",  type=lambda x: (str(x).lower() == 'true'), default=False)
     parser.add_argument("--load_4bit",  type=lambda x: (str(x).lower() == 'true'), default=True)
@@ -190,6 +190,7 @@ if __name__=="__main__":
     print(args)
 
     BATCH_SIZE  = 16
+    FRAMES_PER_SAMPLE = 8
     BATCH_CNT = 0
     TOTAL_SAMPLES_TO_PROCESS = args.samples_to_process
     BATCH_PROCESS_TIME = ""
@@ -271,7 +272,7 @@ if __name__=="__main__":
         }
     last_processed_time = None
     
-    ALL_VIDEO_SAMPLES = getAGAnnotationsBatch(AG_Annotations=AG_Annotations, frames_per_block=2)
+    ALL_VIDEO_SAMPLES = getAGAnnotationsBatch(AG_Annotations=AG_Annotations, frames_per_block=FRAMES_PER_SAMPLE)
     TOTAL_BATCH = len(ALL_VIDEO_SAMPLES)//BATCH_SIZE
     TOTAL_BATCH_TO_PROCESS = args.samples_to_process//BATCH_SIZE
 

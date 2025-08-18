@@ -83,7 +83,7 @@ def collate_fn_video_gemma3_test(examples,processor,device, max_frames=8):
 
     return inputs
 
-def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=True, max_frames=4, isDeepSpeed=True):
+def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=True, max_frames=8, isDeepSpeed=True):
     batch_messages = []
 
     video_folder = video_data_root
@@ -100,7 +100,7 @@ def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=Tr
             print(f"[ERROR] file not found: {video_file}")
         frame_indices = example["frame_indices"]
 
-        if max_frames<len(frame_indices):
+        if len(frame_indices)>max_frames:
             # Parse ground truth triplets
             gt_str = assitant_respose["value"]
             frames_gt = gt_str.split('#frameid')[1:]  # skip the first empty split
@@ -120,6 +120,10 @@ def collate_fn_video_gemma3(examples,processor,video_data_root, device, train=Tr
             
             new_gt_str = ''.join([f"#frameid{gt};" for gt in frames_gt]) + "#sg_end"
             assitant_respose["value"] = new_gt_str
+        
+        elif len(frame_indices)<max_frames:
+            print(f"skiping this sample because len of frames is less than defined limit: expected {max_frames} but found {len(frame_indices)}")
+            continue
 
         video, num_frames_to_sample = process_video_with_decord(video_file,frame_indices_custom=frame_indices)
         # print("decord video sample: ", video.shape)

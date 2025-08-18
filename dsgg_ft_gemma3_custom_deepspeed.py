@@ -32,15 +32,6 @@ def is_main_process() -> bool:
     except Exception:
         return True
 
-# def move_to_device(batch, device):
-#     if isinstance(batch, torch.Tensor):
-#         return batch.to(device, non_blocking=True)
-#     if isinstance(batch, dict):
-#         return {k: move_to_device(v, device) for k, v in batch.items()}
-#     if isinstance(batch, (list, tuple)):
-#         return type(batch)(move_to_device(v, device) for v in batch)
-#     return batch
-
 def move_to_device(batch, device):
     if isinstance(batch, torch.Tensor):
         # print(f"Moving tensor to {device}")
@@ -63,8 +54,8 @@ if __name__ == "__main__":
     # Config / env
     # ---------------------------
     config = Configuration()
-    config.LORA_RANK = 16
-    config.LORA_ALPHA = 16
+    config.LORA_RANK = 32
+    config.LORA_ALPHA = 32
     config.LEARNING_RATE = 2e-4
     config.PROJECT_NAME = "gemma3-it-video_dsgg"
     config.attn_implementation = ["sdpa", "eager", "flash_attention_2"][2]
@@ -72,9 +63,10 @@ if __name__ == "__main__":
     config.MAX_FRAMES_TO_TRAIN = 8
     config.MODEL_ID = "google/gemma-3-4b-it"  # or "google/gemma-3n-e4b-it"
     config.GRADIENT_ACCU_STEPS = 5
+    config.HF_HUB_MODEL_SAVE_ID  = f"ajaymin28/Gemma3-video-qlora-AG-8-frames-rank{config.LORA_RANK}_a{config.LORA_ALPHA}_ep{config.EPOCHS}_{config.MAX_FRAMES_TO_TRAIN}frames"
 
-    RUN_NAME = f"gemma-3-4b-it-lora_r{config.LORA_RANK}_a{config.LORA_ALPHA}_lr{config.LEARNING_RATE}_justlora_8frames_deepspeed_customft_loop"
-    save_path = f"./checkpoints/{RUN_NAME}"
+    RUN_NAME = f"gemma-3-4b-it-lora_r{config.LORA_RANK}_a{config.LORA_ALPHA}_lr{config.LEARNING_RATE}_ep{config.EPOCHS}_justlora_{config.MAX_FRAMES_TO_TRAIN}frames_deepspeed_customft_skipsamples"
+    save_path = f"./checkpoints/gemma3/{RUN_NAME}"
     os.makedirs(save_path, exist_ok=True)
 
     os.environ["WANDB_PROJECT"] = config.PROJECT_NAME
@@ -196,8 +188,9 @@ if __name__ == "__main__":
     # try:
     #     from bitsandbytes.optim import AdamW8bit as AdamW
     # except Exception:
+    #     from torch.optim import AdamW  # fallback
     
-    from torch.optim import AdamW  # fallback
+    from torch.optim import AdamW 
 
     optim_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = AdamW(optim_params, lr=config.LEARNING_RATE)
@@ -288,3 +281,11 @@ if __name__ == "__main__":
         model_engine.module.save_pretrained(save_path)
         processor.save_pretrained(save_path)
         print(f"[INFO] LoRA adapter & processor saved to {save_path}")
+
+        # Push to HF hub
+        try:
+            model_engine.module.push_to_hub(config.HF_HUB_MODEL_SAVE_ID)
+            processor.push_to_hub(config.HF_HUB_MODEL_SAVE_ID)
+            print(f"saved model and processor to HF Hub at: {config.HF_HUB_MODEL_SAVE_ID}")
+        except Exception as e:
+            print("error saving model and processor to HF Hub")
